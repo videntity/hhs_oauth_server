@@ -13,13 +13,35 @@
        </div>
     
 
+<div id="messages">
+            <div class="alert alert-warning">
+              <a class="close" data-dismiss="alert">×</a>
+              
+
+             NOTICE: {{settings.DISCLOSURE_TEXT }}
+            </div>
+
+</div>
+
+
+
       <div class="hero-unit">
       <h1>{% trans "Login" %}</h1>
-    <br>
-      
+	  
       <div class="row">
       <div class="span7 center">
-        <form class="well" method="post" action="">
+
+		 {% if settings.ALLOW_END_USER_EXTERNAL_AUTH %}
+		 <div class="hero-unit text-center">
+		 
+		   <p class="lead">
+    <a class="btn btn-primary btn-lg" href="{% url 'social:begin' 'oauth2io' %}?next={{ request.GET.next | urlencode }}" role="button">{{settings.EXTERNAL_AUTH_NAME}}</a>
+
+		   </p>
+	   {% else %}
+	   <div class="hero-unit">
+	   
+       <form class="well" method="post" action="">
           {% csrf_token %}
           <table>
           
@@ -31,11 +53,22 @@
             <!-- btn-xlarge currently defined in base.html.
                  TODO: need to move to css file with other button settings-->
             <br/>
-            <a href="{% url 'forgot_password' %}">Forgot Password?</a> |               <a href="{% url 'request_invite' %}">
+
+            <a href="{% url 'forgot_password' %}">Forgot Password?</a> | <a href="{% url 'request_invite' %}">
                   {% trans "Request Invite" %}</a>
         </form>
+  
+ {% endif %}
+		
+		
+		
+
       </div>
+	  
+	  
+	  
     </div>
+	  </div>
   
 
 

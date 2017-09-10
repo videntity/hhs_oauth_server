@@ -9,12 +9,24 @@ from ..models import UserProfile, MFACode
 from ..mfa_forms import LoginForm, MFACodeForm
 from ratelimit.decorators import ratelimit
 import logging
+from django.contrib.auth.signals import user_login_failed
+from django.dispatch import receiver
 from ...utils import get_client_ip
 import sys
+from django.views.decorators.cache import never_cache
+from axes.decorators import watch_login
 
 logger = logging.getLogger('hhs_oauth_server.accounts')
+failed_login_log = logging.getLogger('unsuccessful_logins')
 
 
+@receiver(user_login_failed)
+def user_login_failed_callback(sender, credentials, **kwargs):
+    l = "Login failed for %s." % (credentials['username'])
+    failed_login_log.warning(l)
+
+
+@never_cache
 def mfa_code_confirm(request, uid):
     mfac = get_object_or_404(MFACode, uid=uid)
     user = mfac.user
@@ -41,7 +53,10 @@ def mfa_code_confirm(request, uid):
             if user.is_active:
                 # Fake backend here since its not needed.
                 user.backend = 'django.contrib.auth.backends.ModelBackend'
-                # Else, just login as normal without MFA
+                # User's AAL is 2 factor
+                up = UserProfile.objects.get(user=user)
+                up.aal = '2'
+                up.save()
                 login(request, user)
                 mfac.delete()
                 next_param = request.GET.get('next', '')
@@ -58,7 +73,6 @@ def mfa_code_confirm(request, uid):
                         'activate your account.'))
                 return render(
                     request, 'generic/bootstrapform.html', {'form': form})
-
         else:
             return render(request, 'generic/bootstrapform.html',
                           {'form': form})
@@ -67,8 +81,10 @@ def mfa_code_confirm(request, uid):
                   {'form': MFACodeForm()})
 
 
-@ratelimit(key='user_or_ip', rate=getattr(settings, 'LOGIN_RATE', '5/m'), method=['POST'], block=True)
-@ratelimit(key='post:username', rate=getattr(settings, 'LOGIN_RATE', '5/m'), method=['POST'], block=True)
+@ratelimit(key='post:username', rate=getattr(settings, 'LOGIN_RATE', '3/h'), method=['POST'], block=True)
+@ratelimit(key='user_or_ip', rate=getattr(settings, 'LOGIN_RATE', '3/h'), method=['POST'], block=True)
+@never_cache
+@watch_login
 def mfa_login(request):
     if request.method == 'POST':
         form = LoginForm(request.POST)
@@ -95,7 +111,6 @@ def mfa_login(request):
                         if up.mfa_login_mode == "EMAIL":
                             messages.info(
                                 request, _('An access code was sent to your email. Please enter it here.'))
-
                         rev = reverse('mfa_code_confirm', args=(mfac.uid,))
                         # Fetch the next and urlencode
                         if request.GET.get('next', ''):
@@ -110,6 +125,9 @@ def mfa_login(request):
 
                         return HttpResponseRedirect(rev)
                     # Else, just login as normal without MFA
+                    # User's AAL is single factor
+                    up.aal = '1'
+                    up.save()
                     login(request, user)
                     logger.info(
                         "Successful login from {}".format(

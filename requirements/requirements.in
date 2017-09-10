@@ -22,6 +22,7 @@ dj-database-url
 pyjwt
 jsonfield
 
+
 # notifications
 django-ses
 
@@ -32,6 +33,7 @@ coverage
 django-debug-toolbar
 
 # security and identity system
+social-auth-app-django
 oauthlib
 python-openid
 django-oauth-toolkit-scopes-backend
@@ -42,6 +44,9 @@ django-ratelimit
 # for screen scraping
 robobrowser
 lxml
+
+# Decorate admin urls to force MFA login
+decorate_url
 
 # mock for Python 2
 mock

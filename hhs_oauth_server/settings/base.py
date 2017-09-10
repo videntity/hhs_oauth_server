@@ -3,7 +3,7 @@ import dj_database_url
 import socket
 import datetime
 from getenv import env
-from ..utils import bool_env, int_env
+from ..utils import bool_env, int_env, is_python2
 
 from django.contrib.messages import constants as messages
 from django.utils.translation import ugettext_lazy as _
@@ -28,6 +28,9 @@ SECRET_KEY = env('DJANGO_SECRET_KEY',
 if SECRET_KEY == 'FAKE_SECRET_KEY_YOU_MUST_SET_DJANGO_SECRET_KEY_VAR':
     print("WARNING: Generate your secret key and set in environment "
           "variable: DJANGO_SECRET_KEY")
+
+# Set Python2 to use for unicode field conversion to text
+RUNNING_PYTHON2 = is_python2()
 
 # Use to skip LDAP tests
 AUTH_LDAP_ACTIVE = False
@@ -86,9 +89,6 @@ INSTALLED_APPS = [
     # /.well-known/ endpoints
     'apps.wellknown',
 
-    # Endorsement example TODO migrate to reusable app
-    'apps.endorse',
-
     # Use AppConfig to set apps.dot_ext to dot_ext so that splits in
     # django.db.models.utils doesn't have more than 2 values
     # There probably should be an edit to django.db so that the split
@@ -111,16 +111,11 @@ INSTALLED_APPS = [
     # TODO migrate to move to sandbox or apps.fhir.sandbox
     'apps.sandbox',
 
-    # TODO Add comment. Should this be migrated elsewhere?
-    'apps.fhir.testac',
-
-    # TODO - Migrate to sandbox.  Add tests
-    # 'apps.cmsblue',
-
     # 3rd Party ---------------------
     'corsheaders',
     'bootstrapform',
     'axes',
+    'social_django',  # Python Social Auth
     # DOT must be installed after apps.dot_ext in order to override templates
     'oauth2_provider',
 
@@ -145,6 +140,7 @@ MIDDLEWARE_CLASSES = [
     'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'social_django.middleware.SocialAuthExceptionMiddleware',
 ]
 
 CORS_ORIGIN_ALLOW_ALL = bool_env(env('CORS_ORIGIN_ALLOW_ALL', True))
@@ -224,6 +220,7 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'sitestatic'),
 ]
 
+
 # emails
 SEND_EMAIL = bool_env(env('DJANGO_SEND_EMAIL', True))
 # If using AWS SES, the email below must first be verified.
@@ -287,7 +284,10 @@ MFA = True
 AWS_ACCESS_KEY_ID = env('AWS_ACCESS_KEY_ID', 'change-me')
 AWS_SECRET_ACCESS_KEY = env('AWS_SECRET_ACCESS_KEY', 'change-me')
 
-# logging
+# IF a new file is added for logging go to hhs_ansible and update configuration
+# script to touch log files:
+# hhs_ansible/playbook/appserver/roles/app_update/tasks/main.yml
+# add the new filename as an item to the "Create the log files" action
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -304,13 +304,7 @@ LOGGING = {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
-        },
-        # 'lgfile': {
-        #     'class': 'logging.FileHandler',
-        #     'filename': 'logging.log',
-        #     'mode': 'w',
-        #     'formatter': 'verbose',
-        # }
+        }
     },
     'loggers': {
         'hhs_server': {
@@ -329,6 +323,14 @@ LOGGING = {
             'handlers': ['console'],
             'level': 'INFO',
         },
+        'unsuccessful_logins': {
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
+        'admin_interface': {
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
         'tests': {
             'handlers': ['console'],
             'level': 'DEBUG',
@@ -337,13 +339,9 @@ LOGGING = {
     },
 }
 
-# third parties
 AUTH_PROFILE_MODULE = 'accounts.UserProfile'
-AUTHENTICATION_BACKENDS = (
-    'django.contrib.auth.backends.ModelBackend',
-    # 'apps.accounts.auth.SettingsBackend',
-    # 'apps.accounts.mymedicare_auth.MyMedicareBackend',
-)
+
+# Django Oauth Tookit settings and customizations
 
 OAUTH2_PROVIDER_APPLICATION_MODEL = 'dot_ext.Application'
 # removing apps. by using AppConfig for apps.dot_ext
@@ -361,13 +359,51 @@ DOT_EXPIRES_IN = (
     (86400, _('1 Day')),
     (86400 * 7, _('1 Week')),
     (86400 * 365, _('1 Year')),
+    (259200 * 365 * 3, _('3 Years')),
+    (432000 * 365 * 5, _('5 Years')),
+    (864000 * 365 * 10, _('10 Years')),
 )
 
-
+# The name of an external oauth2 provider.
+EXTERNAL_AUTH_NAME = "MyMedicare.gov"
+ALLOW_END_USER_EXTERNAL_AUTH = ""
 # Set the theme
 THEME = THEMES[THEME_SELECTED]
 
 APPLICATION_TITLE = env('DJANGO_APPLICATION_TITLE', 'CMS Blue Button API')
+ORGANIZATION_TITLE = env(
+    'DJANGO_ORGANIZATION_TITLE',
+    'The U.S. Centers for Medicare and Medicaid Services (CMS)')
+ORGANIZATION_URI = env('DJANGO_ORGANIZATION_URI', 'https://cms.gov')
+POLICY_URI = env(
+    'DJANGO_POLICY_URI',
+    'https://www.cms.gov/About-CMS/Agency-Information/Aboutwebsite/Privacy-Policy.html')
+POLICY_TITLE = env('DJANGO_POLICY_TITLE', 'Privacy Policy')
+TOS_URI = env('DJANGO_TOS_URI', '#')
+TOS_TITLE = env('DJANGO_TOS_TITLE', 'Terms of Service')
+TAG_LINE_1 = env('DJANGO_TAG_LINE_1', 'Share your Medicare data')
+TAG_LINE_2 = env('DJANGO_TAG_LINE_2',
+                 'with applications, organizations, and people you trust.')
+EXPLAINATION_LINE = 'This service allows Medicare beneficiaries to connect their health data to applications of their choosing.'
+EXPLAINATION_LINE = env('DJANGO_EXPLAINATION_LINE ', EXPLAINATION_LINE)
+
+
+# LINKS TO DOCS
+USER_DOCS_URI = "https://hhsidealab.github.io/bluebutton-user-help"
+USER_DOCS_TITLE = "User Documentation"
+DEVELOPER_DOCS_URI = "https://hhsidealab.github.io/bluebutton-developer-help"
+DEVELOPER_DOCS_TITLE = "Developer Documentation"
+
+USER_TITLE = "Medicare beneficiaries, health providers, caregivers, and 3rd party application developers"
+
+DEFAULT_DISCLOSURE_TEXT = """
+This system is provided for use by %s. See the documentation for more information on proper use.
+Unauthorized or improper use of this system or its data may result in disciplinary action, as well as
+civil and criminal penalties. This system may be monitored, recorded, and subject to audit.
+""" % (USER_TITLE)
+
+DISCLOSURE_TEXT = env('DJANGO_PRIVACY_POLICY_URI', DEFAULT_DISCLOSURE_TEXT)
+
 
 HOSTNAME_URL = env('HOSTNAME_URL', 'http://localhost:8000')
 INVITE_REQUEST_ADMIN = env('DJANGO_INVITE_REQUEST_ADMIN')
@@ -375,11 +411,6 @@ INVITE_REQUEST_ADMIN = env('DJANGO_INVITE_REQUEST_ADMIN')
 # Set the default Encoding standard. typically 'utf-8'
 ENCODING = 'utf-8'
 
-# LINKS TO DOCS
-USER_DOCS = "http://transparenthealth.github.io/beneficiary-help/"
-USER_DOCS_TITLE = "Beneficiary Help"
-DEVELOPER_DOCS = "https://transparenthealth.github.io/blue-button-developer-docs/"
-DEVELOPER_DOCS_TITLE = "Developer Documentation"
 
 # include settings values in SETTING_EXPORT to use values in Templates.
 # eg. {{ settings.APPLICATION_TITLE }}
@@ -391,19 +422,37 @@ SETTINGS_EXPORT = [
     'STATIC_URL',
     'STATIC_ROOT',
     'MFA',
-    'USER_DOCS',
+    'USER_DOCS_URI',
     'USER_DOCS_TITLE',
-    'DEVELOPER_DOCS',
-    'DEVELOPER_DOCS_TITLE'
+    'DEVELOPER_DOCS_URI',
+    'DEVELOPER_DOCS_TITLE',
+    'ORGANIZATION_TITLE',
+    'POLICY_URI',
+    'POLICY_TITLE',
+    'DISCLOSURE_TEXT',
+    'TOS_URI',
+    'TOS_TITLE',
+    'TAG_LINE_1',
+    'TAG_LINE_2',
+    'EXPLAINATION_LINE',
+    'EXTERNAL_AUTH_NAME',
+    'ALLOW_END_USER_EXTERNAL_AUTH'
 ]
 
 
+# Dynamic client registration Protocol
+# "O" = Open to everyone
+# "" = Disabled.
+DCRP = env('DJANGO_DCRP', '')
 # Make sessions die out fast for more security ------------------
-# Logout after 30 minutes of inactivity
-SESSION_COOKIE_AGE = 1800
+# Logout after 90 minutes of inactivity = moderate requirementnt
+SESSION_COOKIE_AGE = 5400
 # Logout if the browser is closed
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
+# Change these for production
+USER_ID_SALT = env('DJANGO_USER_ID_SALT', "ChangeMePleaseIReallyM3anIT")
+USER_ID_ITERATIONS = int(env("DJANGO_USER_ID_ITERATIONS", "24000"))
 
 # Stub for Custom Authentication Backend
 SLS_USER = env('DJANGO_SLS_USER')
@@ -418,8 +467,8 @@ SLS_EMAIL = env('DJANGO_SLS_EMAIL')
 # Failed Login Attempt Module: AXES
 # Either integer or timedelta.
 # If integer interpreted, as hours
-AXES_COOLOFF_TIME = datetime.timedelta(seconds=600)
-LOGIN_RATE = '10/m'
+AXES_COOLOFF_TIME = datetime.timedelta(hours=1)
+LOGIN_RATE = '3/h'
 # Default FHIR Server if none defined in Crosswalk or FHIR Server model
 # We will need to add REWRITE_FROM and REWRITE_TO to models
 # to enable search and replace in content returned from backend server.
@@ -431,17 +480,34 @@ BB_CONSENT = {
     'POLICY_URL': "/consent/policy/1/"
 }
 
+# DONE: To support multiple resourceType records in SupportedResourceType
+# We need to have a default FHIR Server as a fallback if the Request.user
+# Does not have a Crosswalk with a default FHIRServer defined.
+# This variable will contain the ID of the Default FHIRServer
+# in the apps.fhir.bluebutton.server.models.FHIRServer table
+FHIR_SERVER_DEFAULT = env('DJANGO_FHIRSERVER_ID', 1)
+
 FHIR_SERVER_CONF = {'SERVER': env('THS_FHIR_SERVER'),
                     'PATH': env('THS_FHIR_PATH'),
                     'RELEASE': env('THS_FHIR_RELEASE'),
                     'REWRITE_FROM': env('THS_FHIR_REWRITE_FROM'),
-                    # RERITE_FROM should be a list
+                    # REWRITE_FROM should be a list
                     'REWRITE_TO': env('THS_FHIR_REWRITE_TO'),
                     # Minutes until search expires
                     'SEARCH_EXPIRY': env('THS_SEARCH_EXPIRY', 30)}
 
 FHIR_CLIENT_CERTSTORE = env('DJANGO_FHIR_CERTSTORE',
                             os.path.join(BASE_DIR, '../certstore'))
+
+# Timeout for request call
+REQUEST_CALL_TIMEOUT = (5, 120)
+
+# url parameters we don't want to pass through to the back-end server
+# FRONT_END_STRIP_PARAMS = []
+FRONT_END_STRIP_PARAMS = ['access_token',
+                          'state',
+                          'response_type',
+                          'client_id']
 
 # cert_file and key_file are referenced relative to BASE_DIR/../certstore
 # used by FhirServer_Auth()
@@ -452,7 +518,46 @@ FHIR_DEFAULT_AUTH = {'client_auth': False,
 SIGNUP_TIMEOUT_DAYS = env('SIGNUP_TIMEOUT_DAYS', 7)
 ORGANIZATION_NAME = env('DJANGO_ORGANIZATION_NAME', 'CMS Blue Button API')
 
-LOGIN_REDIRECT_URL = '/accounts/mfa/login'
+LOGIN_REDIRECT_URL = '/'
 LOGIN_URL = '/accounts/mfa/login'
 
 REQUIRE_AUTHORIZE_APP_FLAG = False
+
+# Move Admin to a variable url location
+ADMIN_PREPEND_URL = env('DJANGO_ADMIN_PREPEND_URL', '')
+
+# Python Social Auth Settings.
+SOCIAL_AUTH_PIPELINE = (
+    'social_core.pipeline.social_auth.social_details',
+    'social_core.pipeline.social_auth.social_uid',
+    'social_core.pipeline.social_auth.auth_allowed',
+    'social_core.pipeline.social_auth.social_user',
+    'social_core.pipeline.user.get_username',
+    'social_core.pipeline.mail.mail_validation',
+    'social_core.pipeline.user.create_user',
+    'apps.accounts.auth_backends.pipeline.create_user_profile',
+    'social_core.pipeline.social_auth.associate_user',
+    'social_core.pipeline.debug.debug',
+    'social_core.pipeline.social_auth.load_extra_data',
+    'social_core.pipeline.user.user_details',
+    'social_core.pipeline.debug.debug'
+)
+# python-social-auth settings
+EXTERNAL_AUTH_NAME = 'MyMedicare.gov'
+
+
+# python-social-auth settings
+SOCIAL_AUTH_URL_NAMESPACE = 'social'
+
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ['next']
+SOCIAL_AUTH_ALWAYS_ASSOCIATE = True
+
+# instagram oauth
+SOCIAL_AUTH_IDME_KEY = '48816722463c11864931ee88972ffcbf'
+SOCIAL_AUTH_IDME_SECRET = '5803b9efd261c0d0a679bd4e4cc7e558'
+SOCIAL_AUTH_IDME_SCOPE = ['identity']
+
+AUTHENTICATION_BACKENDS = (
+    'django.contrib.auth.backends.ModelBackend',
+    'apps.accounts.auth_backends.oauth2io.OAuth2ioOAuth2',
+)
